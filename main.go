@@ -11,8 +11,16 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 )
 
+/* TODO
+-Add reset for progression mode
+	//Check if the current zone is the same as HZE - 1, yes, press button to turn on
+	//or check if progress mode != on, true, turn on
+-Add logic for combining skills, try to maximize times they all sync
+*/
 type Skill struct {
 	name     string
 	cd       int //as seconds
@@ -27,14 +35,13 @@ type Ancient struct {
 }
 
 var gamesave = "clickerHeroSave.txt"
-
 var hash = "7a990d4252c6fb53aacfbb0ec1a3b23"
 var alphabet = "abcdefghijklmnopqrstuvwxyz"
 var salt = "af0ik392jrmt0nsfdghy0"
 var delimiter = "Fe12NAfA3R6z4k0z"
+
+//ORDER MATTERS
 var Cooldowns = [9]Skill{
-	// -1 indicates NA for that skill
-	//ORDER CURRENTLY MATTERS
 	Skill{"Clickstorm", 600, 30},
 	Skill{"Powersurge", 600, 30},
 	Skill{"Lucky Strikes", 1800, 30},
@@ -45,8 +52,13 @@ var Cooldowns = [9]Skill{
 	Skill{"Energize", 3200, -1},
 	Skill{"Reload", 3200, -1}}
 
+//ORDER MATTERS
+
+func autoClick_Polling(wait_group *sync.WaitGroup) {
+	defer wait_group.Done()
+}
+
 var my_ancients = [26]Ancient{
-	//ORDER CURRENTLY MATTERS
 	Ancient{"Libertas", 0, 0.25, 4},
 	Ancient{"Siyalatas", 0, 0.25, 5},
 	Ancient{"Mammon", 0, 0.05, 8},
@@ -90,6 +102,15 @@ func main() {
 	fmt.Println("Clicker Heroes Automation")
 	main_hero_upgrade()
 	auto_abilities()
+	/*
+		var wait_group sync.WaitGroup
+		wait_group.Add(1)
+		//go autoClick_Polling(&wait_group)
+		go bird_collector()
+		wait_group.Wait()
+	*/
+	fmt.Println("Done")
+
 	/*count := 0
 	for {
 		bird_collector()
@@ -103,17 +124,24 @@ func main() {
 }
 
 func bird_collector() {
-	bitmap := robotgo.CaptureScreen()
-	// use `defer robotgo.FreeBitmap(bit)` to free the bitmap
-	tolerance := 0.01
+	tolerance := 0.02
 	var color robotgo.CHex = 0xC0D431
-	x, y := robotgo.FindColor(color, bitmap, tolerance)
-	if x == -1 && y == -1 {
-		fmt.Println("The color could not be found")
-	} else {
-		robotgo.MoveClick(x, y, "LEFT_BUTTON", false)
+	var color2 robotgo.CHex = 0xA6C22F
+
+	for {
+		bitmap := robotgo.CaptureScreen()
+		// use `defer robotgo.FreeBitmap(bit)` to free the bitmap
+		a, b := robotgo.FindColor(color, bitmap, tolerance)
+		c, d := robotgo.FindColor(color2, bitmap, tolerance)
+		if a != -1 || b != -1 {
+			robotgo.MoveClick(a, b, "LEFT_BUTTON", false)
+			fmt.Println("Got One")
+		} else if c != -1 || d != -1 {
+			robotgo.MoveClick(c, d, "LEFT_BUTTON", false)
+		}
+		robotgo.FreeBitmap(bitmap)
+		time.Sleep(5 * time.Second)
 	}
-	robotgo.FreeBitmap(bitmap)
 }
 
 func main_hero_upgrade() {
@@ -126,6 +154,7 @@ func prev_hero_upgrade() {
 }
 
 func auto_abilities() {
+	fmt.Println(Cooldowns)
 	/*for i := 0; i < len(Cooldowns); i++ {
 		fmt.Println("Skill : ", Cooldowns[i].name, "has cooldown: ", Cooldowns[i].cd, " and duration: ", Cooldowns[i].duration)
 	}*/
@@ -141,7 +170,7 @@ func parse_save(input_file string) {
 	//var final_str string
 	file, err := os.Open(input_file)
 	if err != nil {
-		fmt.Println("The file was invalid")
+		panic(err)
 	}
 	buff, err := io.ReadAll(file)
 	if err != nil {
@@ -167,18 +196,6 @@ func parse_save(input_file string) {
 	defer file.Close()
 	file.Write(final_string)
 	//first loop goes through the set of chars pulled from file
-	return
-}
-
-func replace_save(curent_save string, new_save string) {
-	//replaces old save with new version including new edits
-	//start by zlib compressing
-
-	//then b64 encode
-
-	//add hash to start of file
-
-	//restart game ???
 	return
 }
 
