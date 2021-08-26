@@ -34,28 +34,29 @@ type Ancient struct {
 	uid   int
 }
 
+//each string is a set of info uid:levelbonus, split then use
+type Item struct {
+	name    string
+	effect1 string
+	effect2 string
+	effect3 string
+	effect4 string
+}
+
 var gamesave = "clickerHeroSave.txt"
 var hash = "7a990d4252c6fb53aacfbb0ec1a3b23"
-var alphabet = "abcdefghijklmnopqrstuvwxyz"
-var salt = "af0ik392jrmt0nsfdghy0"
-var delimiter = "Fe12NAfA3R6z4k0z"
 
 //ORDER MATTERS
 var Cooldowns = [9]Skill{
-	Skill{"Clickstorm", 600, 30},
-	Skill{"Powersurge", 600, 30},
+	Skill{"Clickstorm", 600, 10},
+	Skill{"Powersurge", 600, 10},
 	Skill{"Lucky Strikes", 1800, 30},
 	Skill{"Metal Detector", 1800, 30},
 	Skill{"Golden Clicks", 3200, 30},
 	Skill{"The Dark Ritual", 28800, -1},
 	Skill{"Super Clicks", 1800, 60},
 	Skill{"Energize", 3200, -1},
-	Skill{"Reload", 3200, -1}}
-
-//ORDER MATTERS
-
-func autoClick_Polling(wait_group *sync.WaitGroup) {
-	defer wait_group.Done()
+	Skill{"Reload", 3200, -1},
 }
 
 var my_ancients = [26]Ancient{
@@ -87,18 +88,24 @@ var my_ancients = [26]Ancient{
 	Ancient{"Nogardnit", 0, 0.10, 32},
 }
 
+var my_items = [4]Item{
+	Item{},
+	Item{},
+	Item{},
+	Item{},
+}
+
 func init() {
 	//starts by adding extra time to length and computing reduced cooldowns\
 	parse_save(gamesave)
-	update_ancients("save_JSON.txt")
-	update_cooldowns()
+	update_data("save_JSON.txt")
 	for i := 0; i < len(Cooldowns); i++ {
 		//Cooldowns[i].cd := Cooldowns[i].cd / modval
 		//Cooldowns[i].duration := Cooldowns[i].duration / modval
 	}
-
 }
 func main() {
+
 	fmt.Println("Clicker Heroes Automation")
 	main_hero_upgrade()
 	auto_abilities()
@@ -199,36 +206,10 @@ func parse_save(input_file string) {
 	return
 }
 
-func update_cooldowns() {
+func update_data(save_JSON string) {
 	//takes cd reducation and duration increase from file
 	//updates ability table
-	cooldown_level := my_ancients[14].level
-	Cooldowns[0].duration = Cooldowns[0].duration + int(my_ancients[16].level*2) //Clickstorm
-	Cooldowns[1].duration = Cooldowns[1].duration + int(my_ancients[18].level*2) //Powersurge
-	Cooldowns[2].duration = Cooldowns[2].duration + int(my_ancients[19].level*2) //Lucky Strikes
-	Cooldowns[3].duration = Cooldowns[3].duration + int(my_ancients[21].level*2) //Metal Detector
-	Cooldowns[4].duration = Cooldowns[4].duration + int(my_ancients[20].level*2) //GOlden Clicks
-	Cooldowns[6].duration = Cooldowns[6].duration + int(my_ancients[17].level*2) //Super Clicks
-	var cooldown_reduction float32
-	if cooldown_level >= 280 {
-		//if the level is greater than 280 we can simply set to 75%, no calcs needed
-		cooldown_reduction = 0.75
-	} else {
-		//if under 280, we need to find the % reduction
-		var mod_val float64 = -0.026
-		test := mod_val * float64(cooldown_level)
-		effect_mod := math.Pow(1.92, test)
-		fmt.Println(effect_mod)
-		cooldown_reduction = float32(75 * (1 - effect_mod))
-	}
-	final_cooldown_reduction := 1 - (cooldown_reduction / 100)
-	for i := 0; i < len(Cooldowns); i++ {
-		Cooldowns[i].cd = int(float32(Cooldowns[i].cd) * final_cooldown_reduction)
-	}
-	return
-}
 
-func update_ancients(save_JSON string) {
 	//opens file
 	file, err := os.Open(save_JSON)
 	if err != nil {
@@ -242,25 +223,92 @@ func update_ancients(save_JSON string) {
 	file.Close()
 
 	save_string := string(save_data) //convert bytes to string
-	var search_string string
-	var output_int int64
+	var ancient_search_string string
+	var ancient_output_int int64
 	for i := 0; i < len(my_ancients); i++ {
-		ancient_id := my_ancients[i]
-		search_string = "ancients.ancients." + strconv.Itoa(ancient_id.uid) + ".level"
-		JSON_resp := gojsonq.New().FromString(save_string).Find(search_string)
-		output := JSON_resp.(string)
+		ancient_id := my_ancients[i].uid
+		ancient_search_string = "ancients.ancients." + strconv.Itoa(ancient_id) + ".level"
+		ancient_JSON_resp := gojsonq.New().FromString(save_string).Find(ancient_search_string)
+		ancient_output := ancient_JSON_resp.(string)
 		big_val := false
-		for i := 0; i < len(output); i++ {
-			if string(output[i]) == "e" {
+		for i := 0; i < len(ancient_output); i++ {
+			if string(ancient_output[i]) == "e" {
 				big_val = true
 			}
 		}
 		if big_val == false {
-			output_float, _ := strconv.ParseFloat(output, 64)
-			output_int = int64(math.Round(output_float))
+			ancient_output_float, _ := strconv.ParseFloat(ancient_output, 64)
+			ancient_output_int = int64(math.Round(ancient_output_float))
 		} else {
-			output_int = int64(-1)
+			ancient_output_int = int64(-1)
 		}
-		my_ancients[i].level = int64(output_int)
+		my_ancients[i].level = int64(ancient_output_int)
 	}
+	count := 1
+	//updates any ancients that have item bonus stats
+
+	//collect list of item slots
+	//items.items.uid
+	list_string := "items.slots"
+	item_list_JSON_resp := gojsonq.New().FromString(save_string).From(list_string).Get()
+	test_out := item_list_JSON_resp.()
+
+	fmt.Println(test_out)
+	for {
+		//iterate over items in slots and get info for item
+		item_string := "items"
+		item_JSON_resp := gojsonq.New().FromString(save_string).Find(item_string)
+		//fmt.Println(item_JSON_resp)
+		if item_JSON_resp != nil {
+			//needs to be singe item to use string method
+			//item_output_string := item_JSON_resp.(string)
+			//fmt.Println(item_output_string)
+			count = count + 1
+			fmt.Println("Looped")
+			if count > 25 {
+				fmt.Println("break")
+				break
+			}
+		}
+	}
+	//fmt.Println(item_output)
+	var cooldown_level int64
+	for i := 0; i < len(my_ancients); i++ {
+		if my_ancients[i].uid == 20 {
+			cooldown_level = my_ancients[i].level
+			break
+		}
+	}
+	//updates length of all abilities
+	Cooldowns[0].duration = Cooldowns[0].duration + int(my_ancients[16].level*2) //Clickstorm
+	Cooldowns[1].duration = Cooldowns[1].duration + int(my_ancients[18].level*2) //Powersurge
+	Cooldowns[2].duration = Cooldowns[2].duration + int(my_ancients[19].level*2) //Lucky Strikes
+	Cooldowns[3].duration = Cooldowns[3].duration + int(my_ancients[21].level*2) //Metal Detector
+	Cooldowns[4].duration = Cooldowns[4].duration + int(my_ancients[20].level*2) //GOlden Clicks
+	Cooldowns[6].duration = Cooldowns[6].duration + int(my_ancients[17].level*2) //Super Clicks
+
+	var cooldown_reduction float32
+	if cooldown_level >= 280 {
+		//if the level is greater than 280 we can simply set to 75%, no calcs needed
+		cooldown_reduction = 73.56
+	} else {
+		//if under 280, we need to find the % reduction
+		var mod_val float64 = -0.026
+		test := mod_val * float64(cooldown_level)
+		effect_mod := math.Pow(1.92, test)
+		cooldown_reduction = float32(75 * (1 - effect_mod))
+	}
+	final_cooldown_mod := 1 - (cooldown_reduction / 100)
+	for i := 0; i < len(Cooldowns); i++ { //works with static value, should be correct
+		rounded_cooldown := float32(Cooldowns[i].cd) + .5
+		Cooldowns[i].cd = int(rounded_cooldown * final_cooldown_mod)
+	}
+	return
+}
+
+func update_ancients(save_JSON string) {
+}
+
+func autoClick_Polling(wait_group *sync.WaitGroup) {
+	defer wait_group.Done()
 }
