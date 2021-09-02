@@ -5,14 +5,15 @@ import (
 	"compress/zlib"
 	b64 "encoding/base64"
 	"fmt"
-	"github.com/go-vgo/robotgo"
-	"github.com/thedevsaddam/gojsonq/v2"
 	"io"
 	"math"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/go-vgo/robotgo"
+	"github.com/thedevsaddam/gojsonq/v2"
 )
 
 /* TODO
@@ -20,6 +21,10 @@ import (
 	//Check if the current zone is the same as HZE - 1, yes, press button to turn on
 	//or check if progress mode != on, true, turn on
 -Add logic for combining skills, try to maximize times they all sync
+
+-Add DLL code injection to allow better control
+//collect handle to game, inject dll
+
 */
 type Skill struct {
 	name     string
@@ -34,69 +39,60 @@ type Ancient struct {
 	uid   int
 }
 
-//each string is a set of info uid:levelbonus, split then use
-type Item struct {
-	name    string
-	effect1 string
-	effect2 string
-	effect3 string
-	effect4 string
-}
+var hero_ready robotgo.CHex = 0xC0D431
+var hero_unavail robotgo.CHex = 0x46687F
 
+//each string is a set of info uid:levelbonus, split then use
+
+//gamesave location should be set here
 var gamesave = "clickerHeroSave.txt"
 var hash = "7a990d4252c6fb53aacfbb0ec1a3b23"
 
 //ORDER MATTERS
 var Cooldowns = [9]Skill{
-	Skill{"Clickstorm", 600, 10},
-	Skill{"Powersurge", 600, 10},
-	Skill{"Lucky Strikes", 1800, 30},
-	Skill{"Metal Detector", 1800, 30},
-	Skill{"Golden Clicks", 3200, 30},
-	Skill{"The Dark Ritual", 28800, -1},
-	Skill{"Super Clicks", 1800, 60},
-	Skill{"Energize", 3200, -1},
-	Skill{"Reload", 3200, -1},
+	{"Clickstorm", 600, 10},
+	{"Powersurge", 600, 10},
+	{"Lucky Strikes", 1800, 30},
+	{"Metal Detector", 1800, 30},
+	{"Golden Clicks", 3200, 30},
+	{"The Dark Ritual", 28800, -1},
+	{"Super Clicks", 1800, 60},
+	{"Energize", 3200, -1},
+	{"Reload", 3200, -1},
 }
 
 var my_ancients = [26]Ancient{
-	Ancient{"Libertas", 0, 0.25, 4},
-	Ancient{"Siyalatas", 0, 0.25, 5},
-	Ancient{"Mammon", 0, 0.05, 8},
-	Ancient{"Mimzee", 0, 0.5, 9},
-	Ancient{"Pluto", 0, .30, 10},
-	Ancient{"Dogcog", 0, 0, 11},
-	Ancient{"Fortuna", 0, 0, 12},
-	Ancient{"Atman", 0, 0, 13},
-	Ancient{"Dora", 0, 0, 14},
-	Ancient{"Bhaal", 0, 0.15, 15},
-	Ancient{"Morgulis", 0, 0.11, 16},
-	Ancient{"Chronos", 0, 0, 17},
-	Ancient{"Bubos", 0, 0, 18},
-	Ancient{"Fragsworth", 0, 0.20, 19},
-	Ancient{"Vaagur", 0, 0, 20},
-	Ancient{"Kumawakamaru", 0, 0, 21},
-	Ancient{"Chawedo", 0, 2.0, 22},
-	Ancient{"Hetoncheir", 0, 2.0, 23},
-	Ancient{"Beserker", 0, 2.0, 24},
-	Ancient{"Sniperino", 0, 2.0, 25},
-	Ancient{"Kleptos", 0, 2.0, 26},
-	Ancient{"Energon", 0, 2.0, 27},
-	Ancient{"Argaiv", 0, 2.0, 28},
-	Ancient{"Juggernaut", 0, 0.01, 29},
-	Ancient{"Revloc", 0, 0, 31},
-	Ancient{"Nogardnit", 0, 0.10, 32},
-}
-
-var my_items = [4]Item{
-	Item{},
-	Item{},
-	Item{},
-	Item{},
-}
+	{"Libertas", 0, 0.25, 4},
+	{"Siyalatas", 0, 0.25, 5},
+	{"Mammon", 0, 0.05, 8},
+	{"Mimzee", 0, 0.5, 9},
+	{"Pluto", 0, .30, 10},
+	{"Dogcog", 0, 0, 11},
+	{"Fortuna", 0, 0, 12},
+	{"Atman", 0, 0, 13},
+	{"Dora", 0, 0, 14},
+	{"Bhaal", 0, 0.15, 15},
+	{"Morgulis", 0, 0.11, 16},
+	{"Chronos", 0, 0, 17},
+	{"Bubos", 0, 0, 18},
+	{"Fragsworth", 0, 0.20, 19},
+	{"Vaagur", 0, 0, 20},
+	{"Kumawakamaru", 0, 0, 21},
+	{"Chawedo", 0, 2.0, 22},
+	{"Hetoncheir", 0, 2.0, 23},
+	{"Beserker", 0, 2.0, 24},
+	{"Sniperino", 0, 2.0, 25},
+	{"Kleptos", 0, 2.0, 26},
+	{"Energon", 0, 2.0, 27},
+	{"Argaiv", 0, 2.0, 28},
+	{"Juggernaut", 0, 0.01, 29},
+	{"Revloc", 0, 0, 31},
+	{"Nogardnit", 0, 0.10, 32}}
 
 func init() {
 	//starts by adding extra time to length and computing reduced cooldowns\
+	//sets the window to be Clicker heroes
+	//robotgo.SetActive()
 	parse_save(gamesave)
 	update_data("save_JSON.txt")
 	for i := 0; i < len(Cooldowns); i++ {
@@ -131,6 +127,8 @@ func main() {
 }
 
 func bird_collector() {
+	//!TODO
+	// change format to use robotgo.AddMouse() and not use the physical mouse
 	tolerance := 0.02
 	var color robotgo.CHex = 0xC0D431
 	var color2 robotgo.CHex = 0xA6C22F
@@ -153,11 +151,15 @@ func bird_collector() {
 
 func main_hero_upgrade() {
 	//keeps the current max hero at max levels
-	return
+	robotgo.MoveClick(0, 0, "LEFT_BUTTON", false)
+
 }
 
 func prev_hero_upgrade() {
-	return
+	//scroll to bottom
+	//check if bottom is purchaseable and has 0 levels
+	//or has non-zero levels
+	//if no levels and no purchase, use prev hero
 }
 
 func auto_abilities() {
@@ -166,12 +168,10 @@ func auto_abilities() {
 		fmt.Println("Skill : ", Cooldowns[i].name, "has cooldown: ", Cooldowns[i].cd, " and duration: ", Cooldowns[i].duration)
 	}*/
 	//auto clicks on any upgrade where the duration is longer than cooldown, ie it can always be active
-	return
 }
 
 func update_save() {
 	//saves the game and then recopies and parses save
-	return
 }
 func parse_save(input_file string) {
 	//var final_str string
@@ -189,13 +189,19 @@ func parse_save(input_file string) {
 	//base64 decode
 	decoded_save_string, err := b64.StdEncoding.DecodeString(save_string)
 	if err != nil {
-		fmt.Println("We failed to decode the string")
+		panic(err)
 	}
 	//zlib decompress
 	save_bytes := bytes.NewReader(decoded_save_string)
 	output, err := zlib.NewReader(save_bytes)
+	if err != nil {
+		panic(err)
+	}
 	defer output.Close()
 	final_string, err := io.ReadAll(output)
+	if err != nil {
+		panic(err)
+	}
 	file, err = os.OpenFile("save_JSON.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		panic(err)
@@ -203,7 +209,6 @@ func parse_save(input_file string) {
 	defer file.Close()
 	file.Write(final_string)
 	//first loop goes through the set of chars pulled from file
-	return
 }
 
 func update_data(save_JSON string) {
@@ -216,8 +221,8 @@ func update_data(save_JSON string) {
 		panic(err)
 	}
 	//collect data and close file
-	save_data, err2 := io.ReadAll(file)
-	if err2 != nil {
+	save_data, err := io.ReadAll(file)
+	if err != nil {
 		panic(err)
 	}
 	file.Close()
@@ -236,7 +241,7 @@ func update_data(save_JSON string) {
 				big_val = true
 			}
 		}
-		if big_val == false {
+		if !big_val {
 			ancient_output_float, _ := strconv.ParseFloat(ancient_output, 64)
 			ancient_output_int = int64(math.Round(ancient_output_float))
 		} else {
@@ -251,9 +256,7 @@ func update_data(save_JSON string) {
 	//items.items.uid
 	list_string := "items.slots"
 	item_list_JSON_resp := gojsonq.New().FromString(save_string).From(list_string).Get()
-	test_out := item_list_JSON_resp.()
-
-	fmt.Println(test_out)
+	fmt.Println(item_list_JSON_resp)
 	for {
 		//iterate over items in slots and get info for item
 		item_string := "items"
@@ -280,6 +283,8 @@ func update_data(save_JSON string) {
 		}
 	}
 	//updates length of all abilities
+	//not complete
+	//!TODO
 	Cooldowns[0].duration = Cooldowns[0].duration + int(my_ancients[16].level*2) //Clickstorm
 	Cooldowns[1].duration = Cooldowns[1].duration + int(my_ancients[18].level*2) //Powersurge
 	Cooldowns[2].duration = Cooldowns[2].duration + int(my_ancients[19].level*2) //Lucky Strikes
@@ -303,7 +308,6 @@ func update_data(save_JSON string) {
 		rounded_cooldown := float32(Cooldowns[i].cd) + .5
 		Cooldowns[i].cd = int(rounded_cooldown * final_cooldown_mod)
 	}
-	return
 }
 
 func update_ancients(save_JSON string) {
@@ -311,4 +315,12 @@ func update_ancients(save_JSON string) {
 
 func autoClick_Polling(wait_group *sync.WaitGroup) {
 	defer wait_group.Done()
+}
+
+func ascend() {
+	//triggers ascension at best possible level
+}
+
+func transcend() {
+	//triggers transcension at best possbile level
 }
